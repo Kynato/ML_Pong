@@ -8,7 +8,7 @@ WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 800
 BAR_SIZE = 300
 BALL_SIZE = 30
-FPS = 240
+FPS = 120
 pygame.font.init()
 
 GAME_WINDOW = pygame.display.set_mode( (WINDOW_WIDTH, WINDOW_HEIGHT ))
@@ -43,13 +43,16 @@ class Bar:
 class Ball:
     SIZE = BALL_SIZE
     VEL = 10
+    BOUNCE_COOLDOWN = 10
     def __init__(self):
         self.x = WINDOW_WIDTH/2 - self.SIZE/2
         self.y = WINDOW_HEIGHT/2 - self.SIZE/2
         self.color = (255, 255, 255)
         self.angle = random.randrange(-30, 30)
+        self.bounce_cooldown = self.BOUNCE_COOLDOWN
 
     def move(self):
+        self.bounce_cooldown -= 1
         rad = math.radians(self.angle)
         new_x = self.x + (self.VEL*math.cos(rad))
         new_y = self.y + (self.VEL*math.sin(rad))
@@ -71,21 +74,32 @@ class Ball:
         return None
 
     def collision(self, left, right): 
-
+        if self.y <= 0 or self.y + self.SIZE >= WINDOW_HEIGHT:
+            self.angle = 360 - self.angle
+        if self.bounce_cooldown > 0:
+            return
         if self.x <= left.spacing + left.WIDTH:
             if self.y > left.top and self.y < left.bottom:
                 # Lewy odbija
                 self.angle = 180 - self.angle
+                self.bounce_cooldown = self.BOUNCE_COOLDOWN
                 return True
 
         elif self.x + self.SIZE >= WINDOW_WIDTH - right.WIDTH + right.spacing:
             if self.y > right.top and self.y < right.bottom:
                 # Prawy odbija
                 self.angle = 180 - self.angle
+                self.bounce_cooldown = self.BOUNCE_COOLDOWN
                 return True
 
-        if self.y <= 0 or self.y + self.SIZE >= WINDOW_HEIGHT:
-            self.angle = 360 - self.angle
+        
+
+    def going_left(self):
+        if abs(self.angle) > 90 and (self.angle) < 270:
+            return True
+        else:
+            return False
+        
 
 
 class Background:
@@ -101,7 +115,7 @@ class Background:
         bg = pygame.Rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
         pygame.draw.rect(win, self.color, bg)
         # Score
-        text = self.STAT_FONT.render("Score: " + str(self.fitness), True, pygame.Color('white'))
+        text = self.STAT_FONT.render("fitness: " + str(self.fitness), True, pygame.Color('white'))
         win.blit(text, (WINDOW_WIDTH - 10 - text.get_width(), 10))
 
 
@@ -121,7 +135,7 @@ bg = Background()
 def eval_genomes(genomes, config):
     nets = []
     ge = []
-    print(len(genomes))
+    
     
     for _, g in genomes:
         net = neat.nn.FeedForwardNetwork.create(g, config)
@@ -134,6 +148,7 @@ def eval_genomes(genomes, config):
     if nets[1] != None:
         nets.pop(1)
 
+    print(len(ge))
     lb = Bar(0, 20)
     rb = Bar(WINDOW_WIDTH - Bar.WIDTH, -20)
     ball = Ball()
@@ -148,15 +163,15 @@ def eval_genomes(genomes, config):
                 pygame.quit()
                 quit() 
 
+        ge[0].fitness += 0.1
+
         if ball.check_win() != None:
             run = False
-            ge[0].fitness -= 10
+            ge[0].fitness -= 50
             
-        ge[0].fitness += 0.1
-        lmid = lb.top + lb.HEIGHT/2
-        rmid = rb.top + rb.HEIGHT/2
+        
         #output = nets[0].activate((lb.top, lb.bottom, ball.x, ball.y, rb.top, rb.bottom))
-        output = nets[0].activate((lb.top, lb.bottom, abs(lmid - ball.y), ball.angle, rb.top, rb.bottom, abs(rmid - ball.y)))
+        output = nets[0].activate((lb.top, ball.angle, ball.y, ball.going_left(), rb.top))
         lb.move(output[0])
         rb.move(output[1])
         
