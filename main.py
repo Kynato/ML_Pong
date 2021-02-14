@@ -4,14 +4,15 @@ import random
 import math
 import os
 
+# STATICS
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 800
-BAR_SIZE = 300
+BAR_SIZE = 200
 BALL_SIZE = 30
-FPS = 120
-pygame.font.init()
-
+FPS = 120 
 GAME_WINDOW = pygame.display.set_mode( (WINDOW_WIDTH, WINDOW_HEIGHT ))
+
+pygame.font.init()
 
 class Bar:
     HEIGHT = BAR_SIZE
@@ -39,6 +40,10 @@ class Bar:
                 # move down
                 self.top += self.VEL
                 self.bottom = self.top + self.HEIGHT
+    
+    def center(self):
+        l = self.bottom - self.HEIGHT/2
+        return l
 
 class Ball:
     SIZE = BALL_SIZE
@@ -48,7 +53,7 @@ class Ball:
         self.x = WINDOW_WIDTH/2 - self.SIZE/2
         self.y = WINDOW_HEIGHT/2 - self.SIZE/2
         self.color = (255, 255, 255)
-        self.angle = random.randrange(-30, 30)
+        self.angle = random.randrange(-44, 44)
         self.bounce_cooldown = self.BOUNCE_COOLDOWN
 
     def move(self):
@@ -73,6 +78,9 @@ class Ball:
 
         return None
 
+    def random_angle(self):
+        self.angle += random.randrange(-20, 20)
+
     def collision(self, left, right): 
         if self.y <= 0 or self.y + self.SIZE >= WINDOW_HEIGHT:
             self.angle = 360 - self.angle
@@ -92,7 +100,7 @@ class Ball:
                 self.bounce_cooldown = self.BOUNCE_COOLDOWN
                 return True
 
-        
+    
 
     def going_left(self):
         if abs(self.angle) > 90 and (self.angle) < 270:
@@ -100,8 +108,6 @@ class Ball:
         else:
             return False
         
-
-
 class Background:
     def __init__(self, color=None):
         if not color:
@@ -109,16 +115,28 @@ class Background:
         else:
             self.color = color
         self.fitness = 0
-        self.STAT_FONT = pygame.font.SysFont("comicsans", 50)
+        self.STAT_FONT = pygame.font.SysFont("arial", 50)
+        self.gen = 0
+        self.species = 0
 
     def draw(self, win):
+        # Draw background
         bg = pygame.Rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)
         pygame.draw.rect(win, self.color, bg)
+
         # Score
-        text = self.STAT_FONT.render("fitness: " + str(self.fitness), True, pygame.Color('white'))
-        win.blit(text, (WINDOW_WIDTH - 10 - text.get_width(), 10))
+        text_fitness = self.STAT_FONT.render("fitness: " + str(self.fitness), True, pygame.Color('white'))
+        win.blit(text_fitness, (WINDOW_WIDTH - 10 - text_fitness.get_width(), 10))
 
+        # Generation
+        text_gen = self.STAT_FONT.render("generation: " + str(self.gen), True, pygame.Color("white"))
+        win.blit(text_gen, (WINDOW_WIDTH/2 - text_gen.get_width()/2, 10))
 
+        # Species left
+        text_spec = self.STAT_FONT.render("species: " + str(self.species), True, pygame.Color("white"))
+        win.blit(text_spec, (WINDOW_WIDTH/2 - text_spec.get_width()/2, WINDOW_HEIGHT - 10 - text_spec.get_height()))
+
+# Draws the graphics
 def game_refresh(win, bg, lb, rb, ball):
 
     bg.draw(win)
@@ -132,9 +150,22 @@ def game_refresh(win, bg, lb, rb, ball):
 
 bg = Background() 
 
+# Globals for UI
+gen = 0
+spec = 0
+
+# Main learning loop
 def eval_genomes(genomes, config):
+    global gen
+    global spec
+    gen += 1
+    spec = len(genomes)
+
     nets = []
     ge = []
+    l_bars = []
+    r_bars = []
+    balls = []
     
     
     for _, g in genomes:
@@ -142,16 +173,10 @@ def eval_genomes(genomes, config):
         nets.append(net)
         g.fitness = 0
         ge.append(g)
+        l_bars.append(Bar(0, 20))
+        r_bars.append(Bar(WINDOW_WIDTH - Bar.WIDTH, -20))
+        balls.append(Ball())
     
-    if ge[1] != None:
-        ge.pop(1)
-    if nets[1] != None:
-        nets.pop(1)
-
-    print(len(ge))
-    lb = Bar(0, 20)
-    rb = Bar(WINDOW_WIDTH - Bar.WIDTH, -20)
-    ball = Ball()
     run = True
     clock = pygame.time.Clock()
 
@@ -163,24 +188,44 @@ def eval_genomes(genomes, config):
                 pygame.quit()
                 quit() 
 
-        ge[0].fitness += 0.1
+        # Check for collision and give rewards
 
-        if ball.check_win() != None:
+        for x, b in enumerate(balls):
+            b.move()
+
+            if b.collision(l_bars[x], r_bars[x]):
+                ge[x].fitness += 100
+
+            if b.check_win() == None:
+                ge[x].fitness += 0.1
+            else:
+                ge[x].fitness -= 100
+                ge.pop(x)
+                nets.pop(x)
+                balls.pop(x)
+                l_bars.pop(x)
+                r_bars.pop(x)
+                spec -= 1
+
+        # Break if all genomes extinct
+        if len(balls) <= 0:
             run = False
-            ge[0].fitness -= 50
+            break
+
+        # Let AI decide what to do
+        for x, b in enumerate(balls):
+            output = nets[0].activate((l_bars[x].center() - balls[x].y, balls[x].angle, balls[x].y, balls[x].going_left(), r_bars[x].center() - balls[x].y))
+
+            l_bars[x].move(output[0])
+            r_bars[x].move(output[0])
             
         
-        #output = nets[0].activate((lb.top, lb.bottom, ball.x, ball.y, rb.top, rb.bottom))
-        output = nets[0].activate((lb.top, ball.angle, ball.y, ball.going_left(), rb.top))
-        lb.move(output[0])
-        rb.move(output[1])
-        
-        ball.move()
-        if ball.collision(lb, rb):
-            ge[0].fitness += 10
+        # Print on screen
         bg.fitness = round(ge[0].fitness)
+        bg.gen = gen
+        bg.species = spec
 
-        game_refresh(GAME_WINDOW, bg, lb, rb, ball)
+        game_refresh(GAME_WINDOW, bg, l_bars[0], r_bars[0], balls[0])
 
 
 def run(config_path):
